@@ -50,7 +50,7 @@ def sanitize_filename(filename: str) -> str:
 
 def get_invoice_template(script_dir: Path) -> Path:
     """获取发票申请表模板路径"""
-    template_path = script_dir / "发票申请表模板.xlsx"
+    template_path = script_dir / "发票申请表.xlsx"
     
     if not template_path.exists():
         raise FileNotFoundError("发票申请表模板不存在，请确保 '发票申请表模板.xlsx' 文件在脚本目录中")
