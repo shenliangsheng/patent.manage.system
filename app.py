@@ -193,31 +193,61 @@ def generate_invoice_excel(rows: list, output_dir: Path, excel_template_path: Pa
     if not excel_template_path.exists():
         raise FileNotFoundError("Excel template not found")
 
-    wb = load_workbook(excel_template_path)
-    ws = wb.active
+    # 复制模板文件到输出目录，不修改原模板
+    template_wb = load_workbook(excel_template_path)
+    
+    # 创建新的工作簿，复制模板的所有内容
+    wb = Workbook()
+    wb.remove(wb.active)  # 移除默认的工作表
+    
+    # 复制所有工作表
+    for sheet_name in template_wb.sheetnames:
+        template_ws = template_wb[sheet_name]
+        new_ws = wb.create_sheet(sheet_name)
+        
+        # 复制所有行和列
+        for row in template_ws.iter_rows():
+            for cell in row:
+                new_ws[cell.coordinate].value = cell.value
+                # 复制样式
+                if cell.has_style:
+                    new_ws[cell.coordinate].font = cell.font
+                    new_ws[cell.coordinate].border = cell.border
+                    new_ws[cell.coordinate].fill = cell.fill
+                    new_ws[cell.coordinate].number_format = cell.number_format
+                    new_ws[cell.coordinate].protection = cell.protection
+                    new_ws[cell.coordinate].alignment = cell.alignment
+        
+        # 复制列宽
+        for col in range(1, template_ws.max_column + 1):
+            col_letter = chr(64 + col)
+            new_ws.column_dimensions[col_letter].width = template_ws.column_dimensions[col_letter].width
+
+    # 使用第一个工作表
+    ws = wb[wb.sheetnames[0]]
     
     # 找到第一个空行（从第2行开始查找）
     start_row = 2
-    while ws[f'A{start_row}'].value is not None:
+    while ws.cell(row=start_row, column=1).value is not None:
         start_row += 1
 
     for r in rows:
         # 官费行 - 直接写入数据，不修改表头
-        ws[f'B{start_row}'] = "普通发票（电子）"
-        ws[f'C{start_row}'] = r["申请人"]
-        ws[f'G{start_row}'] = r["总官费"]
-        ws[f'H{start_row}'] = r["总官费"]
-        ws[f'I{start_row}'] = r["总计"]
-        ws[f'Q{start_row}'] = date.today().strftime("%Y年%m月%d日")
+        ws.cell(row=start_row, column=2, value="普通发票（电子）")
+        ws.cell(row=start_row, column=3, value=r["申请人"])
+        ws.cell(row=start_row, column=7, value=r["总官费"])
+        ws.cell(row=start_row, column=8, value=r["总官费"])
+        ws.cell(row=start_row, column=9, value=r["总计"])
+        ws.cell(row=start_row, column=17, value=date.today().strftime("%Y年%m月%d日"))
         start_row += 1
 
         # 代理费行 - 直接写入数据，不修改表头
-        ws[f'B{start_row}'] = "专用发票（电子）"
-        ws[f'C{start_row}'] = r["申请人"]
-        ws[f'G{start_row}'] = r["总代理费"]
-        ws[f'H{start_row}'] = r["总代理费"]
-        ws[f'I{start_row}'] = r["总计"]
-        ws[f'Q{start_row}'] = date.today().strftime("%Y年%m月%d日")
+        ws.cell(row=start_row, column=2, value="专用发票（电子）")
+        ws.cell(row=start_row, column=3, value=r["申请人"])
+        ws.cell(row=start_row, column=7, value=r["总代理费"])
+        ws.cell(row=start_row, column=8, value=r["总代理费"])
+        ws.cell(row=start_row, column=9, value=r["总计"])
+        ws.cell(row=start_row, column=17, value=date.today().strftime("%Y年%m月%d日"))
         start_row += 1
 
     # 修改命名格式
@@ -274,21 +304,28 @@ def main():
         margin-top: 2rem;
         text-align: center;
     }
-    .small-blue-button {
+    .small-button {
+        padding: 0.2rem 0.8rem !important;
+        font-size: 0.85rem !important;
+        margin: 0.1rem !important;
+    }
+    .generate-button {
         background-color: #1E88E5 !important;
         color: white !important;
         border: none !important;
-        padding: 0.3rem 1rem !important;
-        font-size: 0.9rem !important;
-        border-radius: 5px !important;
-        margin: 0.2rem !important;
+        padding: 0.5rem 1.5rem !important;
+        font-size: 1rem !important;
+        border-radius: 8px !important;
+        margin: 1rem auto !important;
+        display: block !important;
+        width: fit-content !important;
     }
-    .small-blue-button:hover {
+    .generate-button:hover {
         background-color: #1565C0 !important;
     }
     .company-radio label {
-        margin: 0 10px !important;
-        padding: 5px 15px !important;
+        margin: 0 8px !important;
+        padding: 4px 12px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -330,88 +367,90 @@ def main():
         )
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # 生成按钮 - 使用蓝白色调和小尺寸
-    if st.button("🚀 生成请款单和发票申请表", type="primary", use_container_width=True):
-        if not word_template or not excel_data:
-            st.error("请上传所有必需的文件！")
-            return
-        
-        # 创建临时目录处理文件
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            output_dir = temp_path / "output"
-            output_dir.mkdir(exist_ok=True)
+    # 生成按钮 - 使用居中且更紧凑的样式
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+    with col_btn2:
+        if st.button("🚀 生成文件", use_container_width=True, type="primary", key="generate_btn"):
+            if not word_template or not excel_data:
+                st.error("请上传所有必需的文件！")
+                return
             
-            # 保存上传的文件
-            word_template_path = temp_path / "word_template.docx"
-            with open(word_template_path, "wb") as f:
-                f.write(word_template.getbuffer())
-            
-            excel_data_path = temp_path / "data.xlsx"
-            with open(excel_data_path, "wb") as f:
-                f.write(excel_data.getbuffer())
-            
-            try:
-                # 获取发票模板（内置）
-                script_dir = Path(__file__).parent if "__file__" in locals() else Path.cwd()
-                invoice_template_path = get_invoice_template(script_dir)
+            # 创建临时目录处理文件
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                output_dir = temp_path / "output"
+                output_dir.mkdir(exist_ok=True)
                 
-                # 读取数据
-                df = pd.read_excel(excel_data_path, dtype=str).fillna("")
+                # 保存上传的文件
+                word_template_path = temp_path / "word_template.docx"
+                with open(word_template_path, "wb") as f:
+                    f.write(word_template.getbuffer())
                 
-                if "分割号" not in df.columns or "官费" not in df.columns or "代理费" not in df.columns:
-                    st.error("Excel 必须包含 '分割号'、'官费'、'代理费' 列")
-                    return
+                excel_data_path = temp_path / "data.xlsx"
+                with open(excel_data_path, "wb") as f:
+                    f.write(excel_data.getbuffer())
                 
-                invoice_rows = []
-                success_count = 0
-                error_count = 0
-                
-                # 显示处理进度
-                progress_bar = st.progress(0)
-                total_groups = len(df.groupby("分割号"))
-                
-                for i, (split_no, sub) in enumerate(df.groupby("分割号")):
-                    try:
-                        result = process_split_group(split_no, sub, output_dir, word_template_path, company_name)
-                        invoice_rows.append(result)
-                        success_count += 1
-                    except Exception as e:
-                        error_count += 1
-                        st.warning(f"⚠️ 处理分割号 {split_no} 出错：{str(e)}")
-                    
-                    progress_bar.progress((i + 1) / total_groups)
-                
-                # 生成发票申请表
                 try:
-                    excel_filename = generate_invoice_excel(invoice_rows, output_dir, invoice_template_path, company_name)
+                    # 获取发票模板（内置）
+                    script_dir = Path(__file__).parent if "__file__" in locals() else Path.cwd()
+                    invoice_template_path = get_invoice_template(script_dir)
+                    
+                    # 读取数据
+                    df = pd.read_excel(excel_data_path, dtype=str).fillna("")
+                    
+                    if "分割号" not in df.columns or "官费" not in df.columns or "代理费" not in df.columns:
+                        st.error("Excel 必须包含 '分割号'、'官费'、'代理费' 列")
+                        return
+                    
+                    invoice_rows = []
+                    success_count = 0
+                    error_count = 0
+                    
+                    # 显示处理进度
+                    progress_bar = st.progress(0)
+                    total_groups = len(df.groupby("分割号"))
+                    
+                    for i, (split_no, sub) in enumerate(df.groupby("分割号")):
+                        try:
+                            result = process_split_group(split_no, sub, output_dir, word_template_path, company_name)
+                            invoice_rows.append(result)
+                            success_count += 1
+                        except Exception as e:
+                            error_count += 1
+                            st.warning(f"⚠️ 处理分割号 {split_no} 出错：{str(e)}")
+                        
+                        progress_bar.progress((i + 1) / total_groups)
+                    
+                    # 生成发票申请表
+                    try:
+                        excel_filename = generate_invoice_excel(invoice_rows, output_dir, invoice_template_path, company_name)
+                    except Exception as e:
+                        st.error(f"❌ 生成发票申请表失败：{str(e)}")
+                        excel_filename = None
+                    
+                    # 保存生成的文件信息到session state，避免下载时重置
+                    if 'generated_files' not in st.session_state:
+                        st.session_state.generated_files = {}
+                    
+                    # 收集所有生成的文件
+                    all_files = {}
+                    docx_files = list(output_dir.glob("*.docx"))
+                    xlsx_files = list(output_dir.glob("*.xlsx"))
+                    
+                    for file in docx_files + xlsx_files:
+                        with open(file, "rb") as f:
+                            all_files[file.name] = f.read()
+                    
+                    st.session_state.generated_files = all_files
+                    st.session_state.company_name = company_name
+                    
+                    # 显示成功信息
+                    st.markdown('<div class="success-card">', unsafe_allow_html=True)
+                    st.success(f"🎉 处理完成！成功生成 {success_count} 个请款单，{error_count} 个失败")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    
                 except Exception as e:
-                    st.error(f"❌ 生成发票申请表失败：{str(e)}")
-                    excel_filename = None
-                
-                # 保存生成的文件信息到session state，避免下载时重置
-                if 'generated_files' not in st.session_state:
-                    st.session_state.generated_files = {}
-                
-                # 收集所有生成的文件
-                all_files = {}
-                docx_files = list(output_dir.glob("*.docx"))
-                xlsx_files = list(output_dir.glob("*.xlsx"))
-                
-                for file in docx_files + xlsx_files:
-                    with open(file, "rb") as f:
-                        all_files[file.name] = f.read()
-                
-                st.session_state.generated_files = all_files
-                st.session_state.company_name = company_name
-                
-                # 显示成功信息
-                st.markdown('<div class="success-card">', unsafe_allow_html=True)
-                st.success(f"🎉 处理完成！成功生成 {success_count} 个请款单，{error_count} 个失败")
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-            except Exception as e:
-                st.error(f"❌ 处理过程中出现错误：{str(e)}")
+                    st.error(f"❌ 处理过程中出现错误：{str(e)}")
     
     # 下载区域 - 只在有生成文件时显示
     if 'generated_files' in st.session_state and st.session_state.generated_files:
@@ -420,23 +459,26 @@ def main():
         st.subheader("📥 下载生成的文件")
         
         # 一键下载全部文件
-        if st.button("📦 一键下载全部文件", use_container_width=True, type="secondary"):
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                for filename, file_content in st.session_state.generated_files.items():
-                    zip_file.writestr(filename, file_content)
-            
-            zip_buffer.seek(0)
-            company = st.session_state.get('company_name', '公司')
-            zip_filename = f"请款单文件_{company}_{date.today().strftime('%Y%m%d')}.zip"
-            
-            st.download_button(
-                label="⬇️ 点击下载ZIP文件",
-                data=zip_buffer,
-                file_name=zip_filename,
-                mime="application/zip",
-                key="download_zip"
-            )
+        col_zip1, col_zip2, col_zip3 = st.columns([1, 2, 1])
+        with col_zip2:
+            if st.button("📦 一键下载全部", use_container_width=True, type="secondary", key="download_all"):
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                    for filename, file_content in st.session_state.generated_files.items():
+                        zip_file.writestr(filename, file_content)
+                
+                zip_buffer.seek(0)
+                company = st.session_state.get('company_name', '公司')
+                zip_filename = f"请款单文件_{company}_{date.today().strftime('%Y%m%d')}.zip"
+                
+                st.download_button(
+                    label="⬇️ 下载ZIP文件",
+                    data=zip_buffer,
+                    file_name=zip_filename,
+                    mime="application/zip",
+                    key="download_zip",
+                    use_container_width=True
+                )
         
         # 分列显示单个文件下载
         col_dl1, col_dl2 = st.columns(2)
