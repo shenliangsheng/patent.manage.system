@@ -48,12 +48,35 @@ def sanitize_filename(filename: str) -> str:
     filename = re.sub(illegal_chars, '_', filename)
     return filename.rstrip('. ')
 
+def create_default_invoice_template():
+    """创建默认的发票申请表模板"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "发票申请"
+    
+    # 设置表头
+    headers = ["序号", "发票类型", "客户名称", "项目名称", "规格型号", "单位", "数量", 
+               "单价", "金额", "税率", "税额", "价税合计", "备注", "申请日期", "申请人", "审批状态"]
+    
+    for col_idx, header in enumerate(headers, 1):
+        ws.cell(row=1, column=col_idx, value=header)
+    
+    # 设置列宽
+    column_widths = [8, 15, 20, 25, 15, 8, 8, 12, 12, 8, 12, 12, 15, 12, 12, 12]
+    for col_idx, width in enumerate(column_widths, 1):
+        ws.column_dimensions[chr(64 + col_idx)].width = width
+    
+    return wb
+
 def get_invoice_template(script_dir: Path) -> Path:
-    """获取发票申请表模板路径"""
-    template_path = script_dir / "发票申请表.xlsx"
+    """获取发票申请表模板路径，如果不存在则创建默认模板"""
+    template_path = script_dir / "发票申请表模板.xlsx"
     
     if not template_path.exists():
-        raise FileNotFoundError("发票申请表模板不存在，请确保 '发票申请表模板.xlsx' 文件在脚本目录中")
+        # 创建默认模板
+        wb = create_default_invoice_template()
+        wb.save(template_path)
+        print(f"✅ 已创建默认发票申请表模板: {template_path}")
     
     return template_path
 
@@ -66,8 +89,8 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
     applicant = str(sub_df["申请人"].iloc[0]) if "申请人" in sub_df.columns else ""
 
     # 空值→0 再求和
-    official_total = pd.to_numeric(sub_df["官费"], errors="coerce").fillna(0).astinate().sum()
-    agent_total = pd.to_numeric(sub_df["代理费"], errors="coerce").fillna(0).astinate().sum()
+    official_total = pd.to_numeric(sub_df["官费"], errors="coerce").fillna(0).astype(int).sum()
+    agent_total = pd.to_numeric(sub_df["代理费"], errors="coerce").fillna(0).astype(int).sum()
     grand_total = official_total + agent_total
 
     # 序号列处理：无论原表有没有"序号"，都重建
