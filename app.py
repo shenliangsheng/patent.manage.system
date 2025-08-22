@@ -195,10 +195,14 @@ def generate_invoice_excel(rows: list, output_dir: Path, excel_template_path: Pa
 
     wb = load_workbook(excel_template_path)
     ws = wb.active
-    start_row = ws.max_row + 1
+    
+    # 找到第一个空行（从第2行开始查找）
+    start_row = 2
+    while ws[f'A{start_row}'].value is not None:
+        start_row += 1
 
     for r in rows:
-        # 官费行
+        # 官费行 - 直接写入数据，不修改表头
         ws[f'B{start_row}'] = "普通发票（电子）"
         ws[f'C{start_row}'] = r["申请人"]
         ws[f'G{start_row}'] = r["总官费"]
@@ -207,7 +211,7 @@ def generate_invoice_excel(rows: list, output_dir: Path, excel_template_path: Pa
         ws[f'Q{start_row}'] = date.today().strftime("%Y年%m月%d日")
         start_row += 1
 
-        # 代理费行
+        # 代理费行 - 直接写入数据，不修改表头
         ws[f'B{start_row}'] = "专用发票（电子）"
         ws[f'C{start_row}'] = r["申请人"]
         ws[f'G{start_row}'] = r["总代理费"]
@@ -270,6 +274,22 @@ def main():
         margin-top: 2rem;
         text-align: center;
     }
+    .small-blue-button {
+        background-color: #1E88E5 !important;
+        color: white !important;
+        border: none !important;
+        padding: 0.3rem 1rem !important;
+        font-size: 0.9rem !important;
+        border-radius: 5px !important;
+        margin: 0.2rem !important;
+    }
+    .small-blue-button:hover {
+        background-color: #1565C0 !important;
+    }
+    .company-radio label {
+        margin: 0 10px !important;
+        padding: 5px 15px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -293,12 +313,24 @@ def main():
     # 显示发票模板信息
     st.info("📋 发票申请表模板已内置在系统中，无需上传")
     
-    # 公司选择放在页面下方
+    # 公司选择放在页面下方 - 修改为"选择命名格式"
     st.markdown('<div class="company-selector">', unsafe_allow_html=True)
-    st.subheader("🏢 选择公司名称")
-    company_name = st.radio("", ["深佳", "集佳"], horizontal=True, label_visibility="collapsed")
+    st.subheader("🏷️ 选择命名格式")
+    
+    # 使用columns来创建水平布局的单选按钮
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # 使用radio并设置水平布局，添加自定义class
+        company_name = st.radio(
+            "",
+            ["深佳", "集佳"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="company_selector"
+        )
     st.markdown('</div>', unsafe_allow_html=True)
     
+    # 生成按钮 - 使用蓝白色调和小尺寸
     if st.button("🚀 生成请款单和发票申请表", type="primary", use_container_width=True):
         if not word_template or not excel_data:
             st.error("请上传所有必需的文件！")
@@ -419,7 +451,8 @@ def main():
                         data=file_content,
                         file_name=filename,
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key=f"doc_{filename}"
+                        key=f"doc_{filename}",
+                        use_container_width=True
                     )
             else:
                 st.info("暂无请款单文件")
@@ -434,7 +467,8 @@ def main():
                         data=file_content,
                         file_name=filename,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"xlsx_{filename}"
+                        key=f"xlsx_{filename}",
+                        use_container_width=True
                     )
             else:
                 st.info("暂无发票申请表文件")
