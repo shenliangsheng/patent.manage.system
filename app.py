@@ -7,6 +7,7 @@ from datetime import date
 import pandas as pd
 from docx import Document
 from openpyxl import load_workbook
+from openpyxl.workbook import Workbook
 import tempfile
 
 # ------------------ 工具函数 ------------------
@@ -44,6 +45,38 @@ def sanitize_filename(filename: str) -> str:
     illegal_chars = r'[<>:\"/\\|?*\x00-\x1F]'
     filename = re.sub(illegal_chars, '_', filename)
     return filename.rstrip('. ')
+
+def create_default_invoice_template():
+    """创建默认的发票申请表模板"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "发票申请"
+    
+    # 设置表头
+    headers = ["序号", "发票类型", "客户名称", "项目名称", "规格型号", "单位", "数量", 
+               "单价", "金额", "税率", "税额", "价税合计", "备注", "申请日期", "申请人", "审批状态"]
+    
+    for col_idx, header in enumerate(headers, 1):
+        ws.cell(row=1, column=col_idx, value=header)
+    
+    # 设置列宽
+    column_widths = [8, 15, 20, 25, 15, 8, 8, 12, 12, 8, 12, 12, 15, 12, 12, 12]
+    for col_idx, width in enumerate(column_widths, 1):
+        ws.column_dimensions[chr(64 + col_idx)].width = width
+    
+    return wb
+
+def get_invoice_template(script_dir: Path) -> Path:
+    """获取发票申请表模板路径，如果不存在则创建默认模板"""
+    template_path = script_dir / "发票申请表模板.xlsx"
+    
+    if not template_path.exists():
+        # 创建默认模板
+        wb = create_default_invoice_template()
+        wb.save(template_path)
+        print(f"✅ 已创建默认发票申请表模板: {template_path}")
+    
+    return template_path
 
 # ------------------ 处理单个分割 ------------------
 
@@ -152,7 +185,7 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
 def generate_invoice_excel(rows: list, output_dir: Path, excel_template_path: Path):
     if not rows:
         print("⚠️ 无数据可汇总")
-        return
+        return None
 
     if not excel_template_path.exists():
         raise FileNotFoundError("Excel template not found")
@@ -194,20 +227,24 @@ def main():
     # 公司选择
     company_name = st.radio("选择公司名称:", ["深佳", "集佳"], horizontal=True)
     
-    # 文件上传
+    # 文件上传区域
+    st.subheader("上传文件")
+    
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("上传模板文件")
-        word_template = st.file_uploader("上传Word请款单模板", type=["docx"])
-        excel_template = st.file_uploader("上传Excel发票申请表模板", type=["xlsx"])
+        word_template = st.file_uploader("上传Word请款单模板", type=["docx"], 
+                                       help="请上传包含 {{申请人}}、{{合计}}、{{大写}}、{{日期}} 占位符的Word模板")
     
     with col2:
-        st.subheader("上传数据文件")
-        excel_data = st.file_uploader("上传需请款专利清单Excel", type=["xlsx"])
+        excel_data = st.file_uploader("上传需请款专利清单Excel", type=["xlsx"], 
+                                    help="Excel必须包含 '分割号'、'官费'、'代理费' 列")
+    
+    # 显示发票模板信息
+    st.info("📋 发票申请表模板已内置在系统中，无需上传")
     
     if st.button("生成请款单和发票申请表", type="primary"):
-        if not all([word_template, excel_template, excel_data]):
+        if not word_template or not excel_data:
             st.error("请上传所有必需的文件！")
             return
         
@@ -222,15 +259,15 @@ def main():
             with open(word_template_path, "wb") as f:
                 f.write(word_template.getbuffer())
             
-            excel_template_path = temp_path / "excel_template.xlsx"
-            with open(excel_template_path, "wb") as f:
-                f.write(excel_template.getbuffer())
-            
             excel_data_path = temp_path / "data.xlsx"
             with open(excel_data_path, "wb") as f:
                 f.write(excel_data.getbuffer())
             
             try:
+                # 获取发票模板（内置）
+                script_dir = Path(__file__).parent if "__file__" in locals() else Path.cwd()
+                invoice_template_path = get_invoice_template(script_dir)
+                
                 # 读取数据
                 df = pd.read_excel(excel_data_path, dtype=str).fillna("")
                 
@@ -240,54 +277,74 @@ def main():
                 
                 invoice_rows = []
                 success_count = 0
+                error_count = 0
                 
-                for split_no, sub in df.groupby("分割号"):
+                # 显示处理进度
+                progress_bar = st.progress(0)
+                total_groups = len(df.groupby("分割号"))
+                
+                for i, (split_no, sub) in enumerate(df.groupby("分割号")):
                     try:
                         result = process_split_group(split_no, sub, output_dir, word_template_path, company_name)
                         invoice_rows.append(result)
                         success_count += 1
-                        st.success(f"成功处理分割号 {split_no}: {result['文件名']}")
+                        st.success(f"✅ 成功处理分割号 {split_no}: {result['文件名']}")
                     except Exception as e:
-                        st.warning(f"处理分割号 {split_no} 出错：{e}")
+                        error_count += 1
+                        st.warning(f"⚠️ 处理分割号 {split_no} 出错：{str(e)}")
+                    
+                    progress_bar.progress((i + 1) / total_groups)
                 
                 # 生成发票申请表
                 try:
-                    excel_filename = generate_invoice_excel(invoice_rows, output_dir, excel_template_path)
-                    st.success(f"发票申请表已生成: {excel_filename}")
+                    excel_filename = generate_invoice_excel(invoice_rows, output_dir, invoice_template_path)
+                    if excel_filename:
+                        st.success(f"✅ 发票申请表已生成: {excel_filename}")
                 except Exception as e:
-                    st.error(f"生成发票申请表失败：{e}")
+                    st.error(f"❌ 生成发票申请表失败：{str(e)}")
                 
                 # 提供下载
                 st.subheader("📥 下载生成的文件")
                 
-                col1, col2 = st.columns(2)
+                col_dl1, col_dl2 = st.columns(2)
                 
-                with col1:
-                    st.write("请款单文件:")
-                    for file in output_dir.glob("*.docx"):
-                        with open(file, "rb") as f:
-                            st.download_button(
-                                label=f"下载 {file.name}",
-                                data=f,
-                                file_name=file.name,
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                            )
+                with col_dl1:
+                    st.write("**请款单文件:**")
+                    docx_files = list(output_dir.glob("*.docx"))
+                    if docx_files:
+                        for file in docx_files:
+                            with open(file, "rb") as f:
+                                st.download_button(
+                                    label=f"📄 下载 {file.name}",
+                                    data=f,
+                                    file_name=file.name,
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key=f"doc_{file.name}"
+                                )
+                    else:
+                        st.info("暂无请款单文件")
                 
-                with col2:
-                    st.write("发票申请表:")
-                    for file in output_dir.glob("*.xlsx"):
-                        with open(file, "rb") as f:
-                            st.download_button(
-                                label=f"下载 {file.name}",
-                                data=f,
-                                file_name=file.name,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
+                with col_dl2:
+                    st.write("**发票申请表:**")
+                    xlsx_files = list(output_dir.glob("*.xlsx"))
+                    if xlsx_files:
+                        for file in xlsx_files:
+                            with open(file, "rb") as f:
+                                st.download_button(
+                                    label=f"📊 下载 {file.name}",
+                                    data=f,
+                                    file_name=file.name,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key=f"xlsx_{file.name}"
+                                )
+                    else:
+                        st.info("暂无发票申请表文件")
                 
-                st.success(f"处理完成！成功生成 {success_count} 个请款单")
+                # 显示统计信息
+                st.success(f"🎉 处理完成！成功生成 {success_count} 个请款单，{error_count} 个失败")
                 
             except Exception as e:
-                st.error(f"处理过程中出现错误：{e}")
+                st.error(f"❌ 处理过程中出现错误：{str(e)}")
 
 if __name__ == "__main__":
     main()
