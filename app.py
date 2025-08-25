@@ -1,6 +1,7 @@
 # patent_billing_generator.py
 # 蓝白色调主题 + 按钮/字号微调 + 提示备注
 # 已删除自动创建模板逻辑，直接写入“发票申请表.xlsx”
+# 补充：F列写入“集佳案号/我方案号”；M/N/O按选择填充；P列固定“深办”
 
 import os, re
 import streamlit as st
@@ -47,6 +48,14 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
                         word_template_path: Path, company_name: str):
     print(f"\n>>> 处理分割号 {split_no}，共 {len(sub_df)} 条")
     applicant = str(sub_df["申请人"].iloc[0]) if "申请人" in sub_df.columns else ""
+
+    # 取案号：优先“集佳案号”，其次“我方案号”，无则空
+    case_no = ""
+    if "集佳案号" in sub_df.columns:
+        case_no = str(sub_df["集佳案号"].iloc[0]) if pd.notna(sub_df["集佳案号"].iloc[0]) else ""
+    elif "我方案号" in sub_df.columns:
+        case_no = str(sub_df["我方案号"].iloc[0]) if pd.notna(sub_df["我方案号"].iloc[0]) else ""
+
     official_total = pd.to_numeric(sub_df["官费"], errors="coerce").fillna(0).astype(int).sum()
     agent_total = pd.to_numeric(sub_df["代理费"], errors="coerce").fillna(0).astype(int).sum()
     grand_total = official_total + agent_total
@@ -118,6 +127,7 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
         "总代理费": agent_total,
         "总计": grand_total,
         "文件名": filename,
+        "案号": case_no
     }
 
 # ---------- 生成发票申请汇总 Excel ----------
@@ -137,19 +147,34 @@ def generate_invoice_excel(rows: list, output_dir: Path, excel_template_path: Pa
         start_row += 1
 
     for r in rows:
+        company_val = company_name   # 集佳 or 深佳
+        case_no = r.get("案号", "")
+
+        # 官费行
         ws.cell(row=start_row, column=2, value="普通发票（电子）")
         ws.cell(row=start_row, column=3, value=r["申请人"])
+        ws.cell(row=start_row, column=6, value=case_no)        # F列
         ws.cell(row=start_row, column=7, value=r["总官费"])
         ws.cell(row=start_row, column=8, value=r["总官费"])
         ws.cell(row=start_row, column=9, value=r["总计"])
+        ws.cell(row=start_row, column=13, value=company_val)   # M
+        ws.cell(row=start_row, column=14, value=company_val)   # N
+        ws.cell(row=start_row, column=15, value=company_val)   # O
+        ws.cell(row=start_row, column=16, value="深办")        # P
         ws.cell(row=start_row, column=17, value=date.today().strftime("%Y年%m月%d日"))
         start_row += 1
 
+        # 代理费行
         ws.cell(row=start_row, column=2, value="专用发票（电子）")
         ws.cell(row=start_row, column=3, value=r["申请人"])
+        ws.cell(row=start_row, column=6, value=case_no)        # F列
         ws.cell(row=start_row, column=7, value=r["总代理费"])
         ws.cell(row=start_row, column=8, value=r["总代理费"])
         ws.cell(row=start_row, column=9, value=r["总计"])
+        ws.cell(row=start_row, column=13, value=company_val)   # M
+        ws.cell(row=start_row, column=14, value=company_val)   # N
+        ws.cell(row=start_row, column=15, value=company_val)   # O
+        ws.cell(row=start_row, column=16, value="深办")        # P
         ws.cell(row=start_row, column=17, value=date.today().strftime("%Y年%m月%d日"))
         start_row += 1
 
@@ -169,21 +194,18 @@ def main():
 
     st.markdown("""
     <style>
-    /* 全局蓝白风 */
     .main {
         background-color: #f0f8ff;
     }
     .css-18e3th9 {
         padding-top: 1rem;
     }
-    /* 主标题 */
     .main-header {
         font-size: 2.2rem;
         color: #0066cc;
         text-align: center;
         margin-bottom: 1rem;
     }
-    /* 卡片 */
     .upload-card {
         background-color: #ffffff;
         border: 1px solid #cce0ff;
@@ -192,7 +214,6 @@ def main():
         margin-bottom: 1.5rem;
         box-shadow: 0 2px 6px rgba(0,102,204,.08);
     }
-    /* 按钮 */
     .stButton > button {
         background-color: #4da6ff;
         border: none;
@@ -205,7 +226,6 @@ def main():
     .stButton > button:hover {
         background-color: #0077e6;
     }
-    /* 单选 */
     .stRadio > label {
         font-weight: 600;
         color: #0066cc;
@@ -216,7 +236,6 @@ def main():
         padding: .3rem .8rem;
         margin: 0 .3rem;
     }
-    /* 提示文字 */
     .note {
         font-size: .85rem;
         color: #0059b3;
