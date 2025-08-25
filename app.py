@@ -327,4 +327,65 @@ def main():
                         st.error(f"⌛ 生成发票申请表失败：{str(e)}")
                         excel_filename = None
 
-                    if '
+                    if 'generated_files' not in st.session_state:
+                        st.session_state.generated_files = {}
+                    all_files = {}
+                    for file in list(output_dir.glob("*.docx")) + list(output_dir.glob("*.xlsx")):
+                        with open(file, "rb") as f:
+                            all_files[file.name] = f.read()
+                    st.session_state.generated_files = all_files
+                    st.session_state.company_name = company_name
+
+                    st.success(f"🎉 处理完成：成功生成 {success_count} 个请款单，{error_count} 个失败")
+                except Exception as e:
+                    st.error(f"⌛ 处理过程中出现错误：{str(e)}")
+
+    if 'generated_files' in st.session_state and st.session_state.generated_files:
+        st.markdown("---")
+        st.subheader("📥 下载生成的文件")
+
+        col_zip = st.columns([1, 2, 1])
+        with col_zip[1]:
+            if st.button("📦 一键打包下载", use_container_width=True, type="secondary"):
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                    for filename, file_content in st.session_state.generated_files.items():
+                        zip_file.writestr(filename, file_content)
+                zip_buffer.seek(0)
+                company = st.session_state.get('company_name', '公司')
+                zip_filename = f"请款单文件_{company}_{date.today().strftime('%Y%m%d')}.zip"
+                st.download_button(
+                    label="⬇️ 下载ZIP文件",
+                    data=zip_buffer,
+                    file_name=zip_filename,
+                    mime="application/zip",
+                    use_container_width=True
+                )
+
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            st.write("**📄 请款单文件:**")
+            docx_files = {k: v for k, v in st.session_state.generated_files.items() if k.endswith('.docx')}
+            if docx_files:
+                for filename, file_content in docx_files.items():
+                    st.download_button(label=f"下载 {filename}", data=file_content,
+                                       file_name=filename,
+                                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                       use_container_width=True)
+            else:
+                st.info("暂无请款单文件")
+
+        with col_dl2:
+            st.write("**📊 发票申请表:**")
+            xlsx_files = {k: v for k, v in st.session_state.generated_files.items() if k.endswith('.xlsx')}
+            if xlsx_files:
+                for filename, file_content in xlsx_files.items():
+                    st.download_button(label=f"下载 {filename}", data=file_content,
+                                       file_name=filename,
+                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                       use_container_width=True)
+            else:
+                st.info("暂无发票申请表文件")
+
+if __name__ == "__main__":
+    main()
