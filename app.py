@@ -1,4 +1,6 @@
-# patent_billing_generator.py ------ 兼容列数 + 空值容错
+# patent_billing_generator.py
+# 蓝白色调主题 + 按钮/字号微调 + 提示备注
+# 已删除自动创建模板逻辑，直接写入“发票申请表.xlsx”
 
 import os, re
 import streamlit as st
@@ -11,8 +13,7 @@ import tempfile
 import zipfile
 import io
 
-# ------------------ 工具函数 ------------------
-
+# ---------- 工具函数 ----------
 def number_to_upper(amount: int) -> str:
     CN_NUM = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖']
     CN_UNIT = ['', '拾', '佰', '仟', '万', '拾万', '佰万', '仟万', '亿']
@@ -41,41 +42,34 @@ def sanitize_filename(filename: str) -> str:
     filename = re.sub(illegal_chars, '_', filename)
     return filename.rstrip('. ')
 
-# ------------------ 处理单个分割 ------------------
-
+# ---------- 处理单个分割 ----------
 def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
-                      word_template_path: Path, company_name: str):
+                        word_template_path: Path, company_name: str):
     print(f"\n>>> 处理分割号 {split_no}，共 {len(sub_df)} 条")
     applicant = str(sub_df["申请人"].iloc[0]) if "申请人" in sub_df.columns else ""
-    # 空值→0 再求和
     official_total = pd.to_numeric(sub_df["官费"], errors="coerce").fillna(0).astype(int).sum()
     agent_total = pd.to_numeric(sub_df["代理费"], errors="coerce").fillna(0).astype(int).sum()
     grand_total = official_total + agent_total
 
-    # 序号列处理：无论原表有没有"序号"，都重建
     sub_df = sub_df.rename(columns={"分割号": "序号"})
     if "序号" in sub_df.columns:
         sub_df = sub_df.drop(columns=["序号"])
     sub_df.insert(0, "序号", range(1, len(sub_df) + 1))
 
-    # Word 模板
     if not word_template_path.exists():
         raise FileNotFoundError("Word template not found")
     doc = Document(word_template_path)
 
-    # 正文占位符
     for p in doc.paragraphs:
         p.text = p.text.replace("{{申请人}}", applicant) \
                       .replace("{{合计}}", str(grand_total)) \
                       .replace("{{大写}}", number_to_upper(grand_total)) \
                       .replace("{{日期}}", date.today().strftime("%Y年%m月%d日"))
 
-    # 表格处理
     if not doc.tables:
         raise ValueError("模板中未找到表格")
     tbl = doc.tables[0]
 
-    # 表头
     hdr_cells = tbl.rows[0].cells
     for idx, col_name in enumerate(sub_df.columns):
         if idx >= len(hdr_cells):
@@ -83,7 +77,6 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
             hdr_cells = tbl.rows[0].cells
         hdr_cells[idx].text = str(col_name)
 
-    # 数据行
     for _, row in sub_df.iterrows():
         new_cells = tbl.add_row().cells
         for idx, col_name in enumerate(sub_df.columns):
@@ -91,15 +84,12 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
                 break
             new_cells[idx].text = str(row[col_name] or "")
 
-    # 合计行
     try:
         off_idx = sub_df.columns.get_loc("官费")
         agt_idx = sub_df.columns.get_loc("代理费")
         sum_idx = agt_idx + 1
     except KeyError:
-        off_idx = 0
-        agt_idx = 1
-        sum_idx = 2
+        off_idx, agt_idx, sum_idx = 0, 1, 2
 
     row = tbl.add_row()
     cells = row.cells
@@ -130,8 +120,7 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
         "文件名": filename,
     }
 
-# ------------------ 生成发票申请汇总 Excel ------------------
-
+# ---------- 生成发票申请汇总 Excel ----------
 def generate_invoice_excel(rows: list, output_dir: Path, excel_template_path: Path, company_name: str):
     if not rows:
         print("⚠ 无数据可汇总")
@@ -169,97 +158,98 @@ def generate_invoice_excel(rows: list, output_dir: Path, excel_template_path: Pa
     print(f"📊 发票申请表已生成：{output_dir / excel_filename}")
     return excel_filename
 
-# ------------------ Streamlit 界面 ------------------
-
+# ---------- Streamlit 界面 ----------
 def main():
     st.set_page_config(
         page_title="专利请款单生成器",
         page_icon="📄",
-        layout="wide",
-        initial_sidebar_state="expanded"
+        layout="centered",
+        initial_sidebar_state="collapsed"
     )
 
     st.markdown("""
     <style>
+    /* 全局蓝白风 */
+    .main {
+        background-color: #f0f8ff;
+    }
+    .css-18e3th9 {
+        padding-top: 1rem;
+    }
+    /* 主标题 */
     .main-header {
-        font-size: 2.5rem;
-        color: #1E88E5;
+        font-size: 2.2rem;
+        color: #0066cc;
         text-align: center;
-        margin-bottom: 2rem;
-        font-weight: bold;
-    }
-    .blue-card {
-        background-color: #E3F2FD;
-        padding: 1.5rem;
-        border-radius: 10px;
-        border-left: 5px solid #1E88E5;
         margin-bottom: 1rem;
     }
-    .success-card {
-        background-color: #E8F5E9;
-        padding: 1.5rem;
-        border-radius: 10px;
-        border-left: 5px solid #4CAF50;
-        margin-bottom: 1rem;
+    /* 卡片 */
+    .upload-card {
+        background-color: #ffffff;
+        border: 1px solid #cce0ff;
+        border-radius: 12px;
+        padding: 1.5rem 2rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 2px 6px rgba(0,102,204,.08);
     }
-    .download-section {
-        background-color: #F5F5F5;
-        padding: 1.5rem;
-        border-radius: 10px;
-        border: 2px solid #BBDEFB;
+    /* 按钮 */
+    .stButton > button {
+        background-color: #4da6ff;
+        border: none;
+        color: white;
+        padding: .45rem 1.4rem;
+        font-size: .95rem;
+        border-radius: 8px;
+        transition: background-color .2s;
     }
-    .company-selector {
-        background-color: #E8EAF6;
-        padding: 1rem;
-        border-radius: 10px;
-        margin-top: 2rem;
-        text-align: center;
+    .stButton > button:hover {
+        background-color: #0077e6;
     }
-    .generate-button {
-        background-color: #1E88E5 !important;
-        color: white !important;
-        border: none !important;
-        padding: 0.5rem 1.5rem !important;
-        font-size: 1rem !important;
-        border-radius: 8px !important;
-        margin: 1rem auto !important;
-        display: block !important;
-        width: fit-content !important;
+    /* 单选 */
+    .stRadio > label {
+        font-weight: 600;
+        color: #0066cc;
+    }
+    .stRadio > div > label {
+        background-color: #e6f0ff;
+        border-radius: 8px;
+        padding: .3rem .8rem;
+        margin: 0 .3rem;
+    }
+    /* 提示文字 */
+    .note {
+        font-size: .85rem;
+        color: #0059b3;
+        margin-top: .4rem;
     }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown('<h1 class="main-header">📄 专利请款单生成器</h1>', unsafe_allow_html=True)
 
-    st.markdown('<div class="blue-card">', unsafe_allow_html=True)
+    st.markdown('<div class="upload-card">', unsafe_allow_html=True)
     st.subheader("📤 上传文件")
     col1, col2 = st.columns(2)
     with col1:
-        word_template = st.file_uploader("上传Word请款单模板", type=["docx"],
-                                         help="请上传包含 {{申请人}}、{{合计}}、{{大写}}、{{日期}} 占位符的Word模板")
+        word_template = st.file_uploader("Word请款单模板", type=["docx"])
     with col2:
-        excel_data = st.file_uploader("上传需请款专利清单Excel", type=["xlsx"],
-                                      help="Excel必须包含 '分割号'、'官费'、'代理费' 列")
+        excel_data = st.file_uploader("专利清单Excel", type=["xlsx"])
+    st.markdown(
+        '<div class="note">'
+        "提示：Word请款单与数据清单表头需保持一致，必须包含“分割号、官费、代理费、申请人”列。"
+        '</div>',
+        unsafe_allow_html=True
+    )
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.info("📋 发票申请表模板已内置在系统中，无需上传")
-
-    st.markdown('<div class="company-selector">', unsafe_allow_html=True)
+    st.markdown('<div class="upload-card" style="text-align:center;">', unsafe_allow_html=True)
     st.subheader("🔸 选择命名格式")
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        company_name = st.radio(
-            "",
-            ["深佳", "集佳"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="company_selector"
-        )
+    company_name = st.radio("", ["深佳", "集佳"], horizontal=True, label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-    with col_btn2:
-        if st.button("🚀 生成文件", use_container_width=True, type="primary", key="generate_btn"):
+    col_btn = st.columns([1, 2, 1])
+    with col_btn[1]:
+        if st.button("🚀 生成文件", use_container_width=True, type="primary"):
             if not word_template or not excel_data:
                 st.error("请上传所有必须的文件！")
                 return
@@ -286,9 +276,7 @@ def main():
                         st.error("Excel 必须包含 '分割号'、'官费'、'代理费' 列")
                         return
 
-                    invoice_rows = []
-                    success_count = 0
-                    error_count = 0
+                    invoice_rows, success_count, error_count = [], 0, 0
                     progress_bar = st.progress(0)
                     total_groups = len(df.groupby("分割号"))
 
@@ -312,32 +300,24 @@ def main():
 
                     if 'generated_files' not in st.session_state:
                         st.session_state.generated_files = {}
-
                     all_files = {}
-                    docx_files = list(output_dir.glob("*.docx"))
-                    xlsx_files = list(output_dir.glob("*.xlsx"))
-                    for file in docx_files + xlsx_files:
+                    for file in list(output_dir.glob("*.docx")) + list(output_dir.glob("*.xlsx")):
                         with open(file, "rb") as f:
                             all_files[file.name] = f.read()
-
                     st.session_state.generated_files = all_files
                     st.session_state.company_name = company_name
 
-                    st.markdown('<div class="success-card">', unsafe_allow_html=True)
                     st.success(f"🎉 处理完成：成功生成 {success_count} 个请款单，{error_count} 个失败")
-                    st.markdown('</div>', unsafe_allow_html=True)
-
                 except Exception as e:
                     st.error(f"⌛ 处理过程中出现错误：{str(e)}")
 
     if 'generated_files' in st.session_state and st.session_state.generated_files:
         st.markdown("---")
-        st.markdown('<div class="download-section">', unsafe_allow_html=True)
         st.subheader("📥 下载生成的文件")
 
-        col_zip1, col_zip2, col_zip3 = st.columns([1, 2, 1])
-        with col_zip2:
-            if st.button("📦 一键下载全部", use_container_width=True, type="secondary", key="download_all"):
+        col_zip = st.columns([1, 2, 1])
+        with col_zip[1]:
+            if st.button("📦 一键打包下载", use_container_width=True, type="secondary"):
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                     for filename, file_content in st.session_state.generated_files.items():
@@ -350,7 +330,6 @@ def main():
                     data=zip_buffer,
                     file_name=zip_filename,
                     mime="application/zip",
-                    key="download_zip",
                     use_container_width=True
                 )
 
@@ -360,14 +339,10 @@ def main():
             docx_files = {k: v for k, v in st.session_state.generated_files.items() if k.endswith('.docx')}
             if docx_files:
                 for filename, file_content in docx_files.items():
-                    st.download_button(
-                        label=f"下载 {filename}",
-                        data=file_content,
-                        file_name=filename,
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key=f"doc_{filename}",
-                        use_container_width=True
-                    )
+                    st.download_button(label=f"下载 {filename}", data=file_content,
+                                       file_name=filename,
+                                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                       use_container_width=True)
             else:
                 st.info("暂无请款单文件")
 
@@ -376,17 +351,12 @@ def main():
             xlsx_files = {k: v for k, v in st.session_state.generated_files.items() if k.endswith('.xlsx')}
             if xlsx_files:
                 for filename, file_content in xlsx_files.items():
-                    st.download_button(
-                        label=f"下载 {filename}",
-                        data=file_content,
-                        file_name=filename,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"xlsx_{filename}",
-                        use_container_width=True
-                    )
+                    st.download_button(label=f"下载 {filename}", data=file_content,
+                                       file_name=filename,
+                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                       use_container_width=True)
             else:
                 st.info("暂无发票申请表文件")
-        st.markdown('</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
