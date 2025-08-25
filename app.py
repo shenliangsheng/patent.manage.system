@@ -72,11 +72,19 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
         raise FileNotFoundError("Word template not found")
     doc = Document(word_template_path)
 
+        # ── 替换正文占位符，保留原有格式（加粗、字号等） ──
+    placeholders = {
+        "{{申请人}}": applicant,
+        "{{合计}}": str(grand_total),
+        "{{大写}}": number_to_upper(grand_total),
+        "{{日期}}": date.today().strftime("%Y年%m月%d日")
+    }
     for p in doc.paragraphs:
-        p.text = p.text.replace("{{申请人}}", applicant) \
-                      .replace("{{合计}}", str(grand_total)) \
-                      .replace("{{大写}}", number_to_upper(grand_total)) \
-                      .replace("{{日期}}", date.today().strftime("%Y年%m月%d日"))
+        for key, val in placeholders.items():
+            if key in p.text:
+                for run in p.runs:
+                    if key in run.text:
+                        run.text = run.text.replace(key, val)
 
     if not doc.tables:
         raise ValueError("模板中未找到表格")
