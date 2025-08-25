@@ -50,12 +50,15 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
     applicant = str(sub_df["申请人"].iloc[0]) if "申请人" in sub_df.columns else ""
 
     # 取案号：优先“集佳案号”，其次“我方案号”，无则空
-    case_no = ""
-    if "集佳案号" in sub_df.columns:
-        case_no = str(sub_df["集佳案号"].iloc[0]) if pd.notna(sub_df["集佳案号"].iloc[0]) else ""
-    elif "我方案号" in sub_df.columns:
-        case_no = str(sub_df["我方案号"].iloc[0]) if pd.notna(sub_df["我方案号"].iloc[0]) else ""
-
+        # 收集该分割号下所有案号（优先集佳案号，其次我方案号）
+    case_no_list = []
+    for _, row in sub_df.iterrows():
+        if "集佳案号" in sub_df.columns and pd.notna(row.get("集佳案号")):
+            case_no_list.append(str(row["集佳案号"]))
+        elif "我方案号" in sub_df.columns and pd.notna(row.get("我方案号")):
+            case_no_list.append(str(row["我方案号"]))
+    case_no = "、".join(case_no_list)
+    
     official_total = pd.to_numeric(sub_df["官费"], errors="coerce").fillna(0).astype(int).sum()
     agent_total = pd.to_numeric(sub_df["代理费"], errors="coerce").fillna(0).astype(int).sum()
     grand_total = official_total + agent_total
