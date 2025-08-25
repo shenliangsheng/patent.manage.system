@@ -70,7 +70,7 @@ def create_default_invoice_template():
 
 def get_invoice_template(script_dir: Path) -> Path:
     """获取发票申请表模板路径，如果不存在则创建默认模板"""
-    template_path = script_dir / "发票申请表模板.xlsx"
+    template_path = script_dir / "发票申请表.xlsx"
     
     if not template_path.exists():
         # 创建默认模板
