@@ -1,7 +1,6 @@
 # patent_billing_generator.py
-# 蓝白色调主题 + 按钮/字号微调 + 提示备注
-# 已删除自动创建模板逻辑，直接写入“发票申请表.xlsx”
-# 补充：F列写入“集佳案号/我方案号”；M/N/O按选择填充；P列固定“深办”
+# 蓝白风、保留 Word 模板字体格式 & 列宽、案号顿号拼接
+# 已删除自动创建模板逻辑
 
 import os, re
 import streamlit as st
@@ -49,8 +48,7 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
     print(f"\n>>> 处理分割号 {split_no}，共 {len(sub_df)} 条")
     applicant = str(sub_df["申请人"].iloc[0]) if "申请人" in sub_df.columns else ""
 
-    # 取案号：优先“集佳案号”，其次“我方案号”，无则空
-        # 收集该分割号下所有案号（优先集佳案号，其次我方案号）
+    # 收集该分割号下所有案号（优先集佳案号，其次我方案号）
     case_no_list = []
     for _, row in sub_df.iterrows():
         if "集佳案号" in sub_df.columns and pd.notna(row.get("集佳案号")):
@@ -58,7 +56,7 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
         elif "我方案号" in sub_df.columns and pd.notna(row.get("我方案号")):
             case_no_list.append(str(row["我方案号"]))
     case_no = "、".join(case_no_list)
-    
+
     official_total = pd.to_numeric(sub_df["官费"], errors="coerce").fillna(0).astype(int).sum()
     agent_total = pd.to_numeric(sub_df["代理费"], errors="coerce").fillna(0).astype(int).sum()
     grand_total = official_total + agent_total
@@ -72,7 +70,7 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
         raise FileNotFoundError("Word template not found")
     doc = Document(word_template_path)
 
-        # ── 替换正文占位符，保留原有格式（加粗、字号等） ──
+    # 保留格式替换正文占位符
     placeholders = {
         "{{申请人}}": applicant,
         "{{合计}}": str(grand_total),
@@ -86,24 +84,25 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
                     if key in run.text:
                         run.text = run.text.replace(key, val)
 
+    # 表格处理：不修改列宽
     if not doc.tables:
         raise ValueError("模板中未找到表格")
     tbl = doc.tables[0]
 
+    # 表头 —— 沿用模板列宽，不新增列
     hdr_cells = tbl.rows[0].cells
     for idx, col_name in enumerate(sub_df.columns):
-        if idx >= len(hdr_cells):
-            tbl.add_column(width=None)
-            hdr_cells = tbl.rows[0].cells
-        hdr_cells[idx].text = str(col_name)
+        if idx < len(hdr_cells):
+            hdr_cells[idx].text = str(col_name)
 
+    # 数据行
     for _, row in sub_df.iterrows():
         new_cells = tbl.add_row().cells
         for idx, col_name in enumerate(sub_df.columns):
-            if idx >= len(new_cells):
-                break
-            new_cells[idx].text = str(row[col_name] or "")
+            if idx < len(new_cells):
+                new_cells[idx].text = str(row[col_name] or "")
 
+    # 合计行
     try:
         off_idx = sub_df.columns.get_loc("官费")
         agt_idx = sub_df.columns.get_loc("代理费")
@@ -328,65 +327,4 @@ def main():
                         st.error(f"⌛ 生成发票申请表失败：{str(e)}")
                         excel_filename = None
 
-                    if 'generated_files' not in st.session_state:
-                        st.session_state.generated_files = {}
-                    all_files = {}
-                    for file in list(output_dir.glob("*.docx")) + list(output_dir.glob("*.xlsx")):
-                        with open(file, "rb") as f:
-                            all_files[file.name] = f.read()
-                    st.session_state.generated_files = all_files
-                    st.session_state.company_name = company_name
-
-                    st.success(f"🎉 处理完成：成功生成 {success_count} 个请款单，{error_count} 个失败")
-                except Exception as e:
-                    st.error(f"⌛ 处理过程中出现错误：{str(e)}")
-
-    if 'generated_files' in st.session_state and st.session_state.generated_files:
-        st.markdown("---")
-        st.subheader("📥 下载生成的文件")
-
-        col_zip = st.columns([1, 2, 1])
-        with col_zip[1]:
-            if st.button("📦 一键打包下载", use_container_width=True, type="secondary"):
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                    for filename, file_content in st.session_state.generated_files.items():
-                        zip_file.writestr(filename, file_content)
-                zip_buffer.seek(0)
-                company = st.session_state.get('company_name', '公司')
-                zip_filename = f"请款单文件_{company}_{date.today().strftime('%Y%m%d')}.zip"
-                st.download_button(
-                    label="⬇️ 下载ZIP文件",
-                    data=zip_buffer,
-                    file_name=zip_filename,
-                    mime="application/zip",
-                    use_container_width=True
-                )
-
-        col_dl1, col_dl2 = st.columns(2)
-        with col_dl1:
-            st.write("**📄 请款单文件:**")
-            docx_files = {k: v for k, v in st.session_state.generated_files.items() if k.endswith('.docx')}
-            if docx_files:
-                for filename, file_content in docx_files.items():
-                    st.download_button(label=f"下载 {filename}", data=file_content,
-                                       file_name=filename,
-                                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                       use_container_width=True)
-            else:
-                st.info("暂无请款单文件")
-
-        with col_dl2:
-            st.write("**📊 发票申请表:**")
-            xlsx_files = {k: v for k, v in st.session_state.generated_files.items() if k.endswith('.xlsx')}
-            if xlsx_files:
-                for filename, file_content in xlsx_files.items():
-                    st.download_button(label=f"下载 {filename}", data=file_content,
-                                       file_name=filename,
-                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                       use_container_width=True)
-            else:
-                st.info("暂无发票申请表文件")
-
-if __name__ == "__main__":
-    main()
+                    if '
