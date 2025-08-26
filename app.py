@@ -66,6 +66,10 @@ def process_split_group(split_no, sub_df: pd.DataFrame, output_dir: Path,
         sub_df = sub_df.drop(columns=["序号"])
     sub_df.insert(0, "序号", range(1, len(sub_df) + 1))
 
+    for col in ("申请日", "申请日期"):
+        if col in sub_df.columns:
+            sub_df[col] = pd.to_datetime(sub_df[col], errors="coerce").dt.strftime("%Y-%m-%d")
+
     if not word_template_path.exists():
         raise FileNotFoundError("Word template not found")
     doc = Document(word_template_path)
